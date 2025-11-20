@@ -77,6 +77,7 @@ def login_prompt():
         pwd = getpass.getpass("Password: ")
         user = authenticate_user(ident, pwd)
         if user:
+            # stores the current user to be used later on
             current_user = user
             print(f"Logged in as {user['username']} (role: {user.get('role_name') or 'Unknown'})")
             return True
@@ -86,6 +87,7 @@ def login_prompt():
 # goes through the steps to register a new user
 def register_prompt():
     print("\n=== Register ===")
+    # asks them the basic infomation
     while True:
         username = input("Username (or 'back' to cancel): ").strip()
         if username.lower() in ('back', 'b'):
@@ -98,7 +100,7 @@ def register_prompt():
         if not email:
             print("Please enter an email address.")
             continue
-
+        # if passwords do not match, they need to retry the login process
         pwd = getpass.getpass("Password: ")
         pwd2 = getpass.getpass("Confirm password: ")
         if pwd != pwd2:
@@ -108,6 +110,7 @@ def register_prompt():
         # always will be role 3 at the start
         role_id = 3
 
+        # inserts the profile into the database
         try:
             cursor.execute(
                 "INSERT INTO users (username, email, password, role_id) VALUES (%s, %s, %s, %s);",
@@ -143,7 +146,7 @@ def register_prompt():
 
 
 
-# Search function for profiles. Returns all profile data for a given profile name.
+# search function for profiles. returns all profile data for a given profile name.
 def search_profiles(display_name):
     display_name = display_name.strip()
     query = """
@@ -168,7 +171,7 @@ def search_profiles(display_name):
 # POKEMON INFOMATION
 # --------------------------------------------------------------------
 
-# Basic search function for any pokemon. Returns: ID, Name, Types, Abilities
+# basic search function for any pokemon. returns: ID, Name, Types, Abilities
 def search_pokemon(pokemon_name):
     pokemon_name = pokemon_name.strip()
 
@@ -211,7 +214,7 @@ def search_pokemon(pokemon_name):
     return results
 
 
-# Search the pokemon base stats
+# searchs the pokemon base stats then returns everything but the total EVs
 def search_pokemon_stats(pokemon_name):
     pokemon_name = pokemon_name.strip()
     query = """
@@ -237,6 +240,7 @@ def search_pokemon_stats(pokemon_name):
 # MENUS
 # --------------------------------------------------------------------
 
+# asks the user what profile they want to search up
 def run_profiles_menu():
 
     while True:
@@ -256,7 +260,7 @@ def run_profiles_menu():
             print("\n Profiles Found:")
             print(tabulate(rows, headers=headers, tablefmt="grid"))
 
-
+# lets the user pick which pokemon search they want to look up
 def run_pokemon_menu():
     # chooses mode once per entry to this sub-menu
     while True:
@@ -312,6 +316,7 @@ def run_pokemon_menu():
 # MAIN PROGRAM
 # --------------------------------------------------------------------
 def main():
+    #log in menu, as well as letting them create an account
     print("===== WELCOME =====")
     print("  1.] Log in")
     print("  2.] Register Account")
@@ -341,9 +346,8 @@ def main():
             break
 
 
-    # Main menu 
+    # main menu to select the submenus
     while True:
-        # Main menu
         print("\n===== MAIN MENU =====")
         print("Welcome to Pokequiz! Please select from the menu below.")
         print("  1.] Pokémon")
@@ -375,4 +379,5 @@ if __name__ == "__main__":
         try:
             conn.close()
         except Exception:
+
             pass

@@ -1,5 +1,6 @@
 import mysql.connector
 import getpass
+import random
 from datetime import datetime, timedelta # for date manipulations
 from tabulate import tabulate # makes the table pretty
 
@@ -8,7 +9,7 @@ from tabulate import tabulate # makes the table pretty
 conn = mysql.connector.connect(
     host='localhost',
     user='root',
-    password='LOL!',
+    password='LOL',
     database='project'
 )
 cursor = conn.cursor(dictionary=True)
@@ -63,6 +64,7 @@ def authenticate_user(identifier, password):
         'role_name': row.get('role_name'),
     }
 
+# need to log in before doing anything else
 def login_prompt():
     global current_user
     print("\n===== Log In =====")
@@ -77,7 +79,6 @@ def login_prompt():
         pwd = getpass.getpass("Password: ")
         user = authenticate_user(ident, pwd)
         if user:
-            # stores the current user to be used later on
             current_user = user
             print(f"Logged in as {user['username']} (role: {user.get('role_name') or 'Unknown'})")
             return True
@@ -87,7 +88,6 @@ def login_prompt():
 # goes through the steps to register a new user
 def register_prompt():
     print("\n=== Register ===")
-    # asks them the basic infomation
     while True:
         username = input("Username (or 'back' to cancel): ").strip()
         if username.lower() in ('back', 'b'):
@@ -100,7 +100,7 @@ def register_prompt():
         if not email:
             print("Please enter an email address.")
             continue
-        # if passwords do not match, they need to retry the login process
+
         pwd = getpass.getpass("Password: ")
         pwd2 = getpass.getpass("Confirm password: ")
         if pwd != pwd2:
@@ -110,7 +110,6 @@ def register_prompt():
         # always will be role 3 at the start
         role_id = 3
 
-        # inserts the profile into the database
         try:
             cursor.execute(
                 "INSERT INTO users (username, email, password, role_id) VALUES (%s, %s, %s, %s);",
@@ -144,9 +143,58 @@ def register_prompt():
                 print("Registration failed:", e)
             # allows retry
 
+# lets the current user edit their account info
+def edit_account():
+    global current_user
+    if not current_user:
+        print("\nYou must be logged in to edit your account!!")
+        return
 
+    while True:
+        print("\n===== EDIT ACCOUNT =====")
+        print("1.] Change email")
+        print("2.] Edit bio")
+        print("3.] Back")
+        choice = input("Option: ").strip()
 
-# search function for profiles. returns all profile data for a given profile name.
+        if choice == "3" or choice.lower().startswith("b"):
+            return
+
+        if choice == "1":
+            new = input("New email (or 'back' to cancel): ").strip()
+            if new.lower() in ("back", "b") or not new:
+                continue
+            try:
+                cursor.execute("UPDATE users SET email = %s WHERE user_id = %s;", (new, current_user['user_id']))
+                conn.commit()
+                current_user['email'] = new
+                print("Email updated.")
+            except mysql.connector.Error as e:
+                conn.rollback()
+                msg = str(e).lower()
+                if "duplicate" in msg or "er_dup" in msg:
+                    print("Email already registered.")
+                else:
+                    print("Update failed:", e)
+
+        elif choice == "2":
+            new = input("New bio (leave empty to clear, or 'back' to cancel): ")
+            if isinstance(new, str) and new.lower() in ("back", "b"):
+                continue
+            # update or insert as needed
+            cursor.execute("UPDATE user_profiles SET bio = %s WHERE user_id = %s;", (new, current_user['user_id']))
+            if cursor.rowcount == 0:
+                cursor.execute(
+                    "INSERT INTO user_profiles (user_id, display_name, role_id, bio) VALUES (%s, %s, %s, %s);",
+                    (current_user['user_id'], current_user.get('username'), current_user.get('role_id', 3), new)
+                )
+            conn.commit()
+            print("Bio updated.")
+
+        else:
+            print("Invalid option.")
+
+# searches for profiles
 def search_profiles(display_name):
     display_name = display_name.strip()
     query = """
@@ -167,11 +215,42 @@ def search_profiles(display_name):
 
     return rows
 
+# to view one's own profile
+def view_own_profile():
+    if not current_user:
+        print("\nYou must be logged in to view your profile! How did this happen????")
+        return
+
+    try:
+        # get display_name for the current user
+        cursor.execute("SELECT display_name FROM user_profiles WHERE user_id = %s LIMIT 1;", (current_user['user_id'],))
+        dn_row = cursor.fetchone()
+        display_name = None
+        if dn_row:
+            display_name = dn_row.get('display_name') if isinstance(dn_row, dict) else dn_row[0]
+        if not display_name:
+            display_name = current_user.get('username')
+
+        # reuse search_profiles which returns the same format as the profile search
+        results = search_profiles(display_name)
+        if not results:
+            print("\nNo profile found for your account.")
+            return
+
+        headers = ["user_id", "display_name", "role", "bio", "created_at", "updated_at"]
+        rows = [[row.get(h) for h in headers] for row in results]
+
+        print("\n===== YOUR PROFILE =====")
+        print(tabulate(rows, headers=headers, tablefmt="grid"))
+    except mysql.connector.Error as e:
+        print("Failed to load profile:", e)
+
+
 # --------------------------------------------------------------------
 # POKEMON INFOMATION
 # --------------------------------------------------------------------
 
-# basic search function for any pokemon. returns: ID, Name, Types, Abilities
+# basic search function for any pokemon. Returns: ID, Name, Types, Abilities
 def search_pokemon(pokemon_name):
     pokemon_name = pokemon_name.strip()
 
@@ -214,7 +293,7 @@ def search_pokemon(pokemon_name):
     return results
 
 
-# searchs the pokemon base stats then returns everything but the total EVs
+# search the pokemon base stats
 def search_pokemon_stats(pokemon_name):
     pokemon_name = pokemon_name.strip()
     query = """
@@ -237,14 +316,353 @@ def search_pokemon_stats(pokemon_name):
     return cursor.fetchall()
 
 # --------------------------------------------------------------------
+# POKEMON QUIZ FUNCTIONS
+# --------------------------------------------------------------------
+
+# view all gamemodes
+def view_gamemodes():
+    query = """
+    SELECT
+        mode_id AS id,
+        mode_name AS name,
+        description
+    FROM game_modes
+    ORDER BY mode_id;
+    """
+    cursor.execute(query)
+    rows = cursor.fetchall()
+
+    headers = ["ID", "Name", "Description"]
+    table = [
+        [
+            r.get('id'),
+            r.get('name'),
+            r.get('description') or ""
+        ]
+        for r in rows
+    ]
+
+    print("\nAvailable Gamemodes:")
+    print(tabulate(table, headers=headers, tablefmt="grid"))
+
+# the guess weight game
+def guess_weight_game(user_id, cursor, db):
+    print("\n===== WHICH POKEMON WEIGHS MORE? =====")
+
+    # for the leaderboard_general
+    cursor.execute("""
+        SELECT mode_id 
+        FROM game_modes
+        WHERE mode_name = 'guess_weight';
+    """)
+    mode_data = cursor.fetchone()
+    mode_id = mode_data["mode_id"] if mode_data else None
+
+    # starts the game loop
+    while True:
+        # gets two random pokemon from mysql
+        query = """
+            SELECT pokemon_id, name, weight
+            FROM pokemon
+            ORDER BY RAND()
+            LIMIT 2;
+        """
+        cursor.execute(query)
+        pokemon = cursor.fetchall()
+
+        p1 = pokemon[0]
+        p2 = pokemon[1]
+
+        print("\nChoose which one is heavier:")
+        print("1.", p1["name"])
+        print("2.", p2["name"])
+
+        # user input
+        while True:
+            choice = input("Your choice (1 or 2): ").strip()
+            if choice in ("1", "2"):
+                break
+            print("Invalid choice. Please enter 1 or 2.")
+
+        if choice == "1":
+            user_choice = p1
+        else:
+            user_choice = p2
+
+        # determines the correct Pokémon
+        correct_pokemon = p1 if p1["weight"] > p2["weight"] else p2
+
+        is_correct = (user_choice["pokemon_id"] == correct_pokemon["pokemon_id"])
+
+        if is_correct:
+            print("\nCorrect! The heavier Pokémon is:", correct_pokemon["name"])
+            score = 100
+        else:
+            print("\nWrong! The heavier Pokémon is:", correct_pokemon["name"])
+            score = 0
+
+        # puts it in the leaderboard_guess_weight
+        insert_weight_query = """
+            INSERT INTO leaderboard_guess_weight (
+                user_id,
+                pokemon1_id,
+                pokemon2_id,
+                user_choice_id,
+                correct_pokemon_id,
+                is_correct,
+                score
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s);
+        """
+
+        cursor.execute(insert_weight_query, (
+            user_id,
+            p1["pokemon_id"],
+            p2["pokemon_id"],
+            user_choice["pokemon_id"],
+            correct_pokemon["pokemon_id"],
+            is_correct,
+            score
+        ))
+        db.commit()
+
+        # puts it in the overall leaderboard
+        if mode_id is not None:
+            cursor.execute("""
+                INSERT INTO leaderboard_general (
+                    user_id, mode_id, score, correct, incorrect
+                )
+                VALUES (%s, %s, %s, %s, %s);
+            """, (
+                user_id,
+                mode_id,
+                score,
+                1 if is_correct else 0,
+                0 if is_correct else 1
+            ))
+            db.commit()
+
+        # play again loop
+        again = input("\nPlay again? (y/n): ").strip().lower()
+        if again not in ("y", "yes"):
+            print("\nExiting weight guessing game!")
+            break
+
+# the stat guessing game
+def guess_stats_game(user_id, cursor, db):
+    print("\n=== Guess the Pokémon From Its Stats ===")
+
+    # -----------------------------------------------------
+    # Load mode_id from game_modes table
+    # -----------------------------------------------------
+    cursor.execute("""
+        SELECT mode_id
+        FROM game_modes
+        WHERE mode_name = 'guess_stats';
+    """)
+    mode_row = cursor.fetchone()
+    mode_id = mode_row["mode_id"] if mode_row else None
+
+    # starts loop
+    while True:
+
+        # gets a random Pokémon and its stats
+        query = """
+            SELECT 
+                p.pokemon_id,
+                p.name,
+                s.hp, s.attack, s.defense, s.sp_atk, s.sp_def, s.speed, s.total
+            FROM pokemon p
+            JOIN pokemon_stats s ON p.pokemon_id = s.pokemon_id
+            ORDER BY RAND()
+            LIMIT 1;
+        """
+        cursor.execute(query)
+        row = cursor.fetchone()
+
+        pokemon_id = row["pokemon_id"]
+        pokemon_name = row["name"]
+
+        # displays stats to player
+        print("\nHere are the stats of a Pokémon:")
+        stat_table = [
+            ["HP", row["hp"]],
+            ["Attack", row["attack"]],
+            ["Defense", row["defense"]],
+            ["Sp. Atk", row["sp_atk"]],
+            ["Sp. Def", row["sp_def"]],
+            ["Speed", row["speed"]],
+            ["Total", row["total"]],
+        ]
+
+        print(tabulate(stat_table, headers=["Stat", "Value"], tablefmt="grid"))
+
+        # playee guess
+        guess = input("\nYour guess (Pokémon name): ").strip()
+
+        is_correct = (guess.lower() == pokemon_name.lower())
+
+        # scores
+        if is_correct:
+            print(f"\n Correct! The Pokémon was {pokemon_name}!")
+            score = 600
+        else:
+            print(f"\n Wrong! The Pokémon was {pokemon_name}.")
+            score = 0
+
+        # puts it in the stat leaderboard
+        cursor.execute("""
+            INSERT INTO leaderboard_guess_stats (
+                user_id,
+                pokemon_id,
+                is_correct,
+                score
+            )
+            VALUES (%s, %s, %s, %s);
+        """, (user_id, pokemon_id, is_correct, score))
+
+        db.commit()
+
+        # puts it in general leaderboard
+        if mode_id:
+            insert_general = """
+                INSERT INTO leaderboard_general (
+                    user_id, mode_id, score, correct, incorrect
+                )
+                VALUES (%s, %s, %s, %s, %s);
+            """
+
+            cursor.execute(insert_general, (
+                user_id,
+                mode_id,
+                score,
+                1 if is_correct else 0,
+                0 if is_correct else 1
+            ))
+            db.commit()
+
+        print("\nScore this round:", score)
+
+        # game loop
+        again = input("\nPlay again? (y/n): ").strip().lower()
+        if again not in ("y", "yes"):
+            print("\nExiting stat guessing game!")
+            break
+
+# --------------------------------------------------------------------
+# LEADERBOARD FUNCTIONS
+# --------------------------------------------------------------------
+
+def view_general_leaderboard():
+    query = """
+        SELECT
+            u.user_id,
+            u.username,
+            COUNT(lg.entry_id) AS total_games,
+            COALESCE(SUM(lg.score), 0) AS total_score
+        FROM leaderboard_general lg
+        JOIN users u ON lg.user_id = u.user_id
+        GROUP BY u.user_id, u.username
+        ORDER BY total_score DESC, total_games DESC
+        LIMIT 10;
+    """
+
+    cursor.execute(query)
+    rows = cursor.fetchall()
+
+    if not rows:
+        print("No leaderboard entries yet.")
+        return
+
+    headers = ["USER ID", "USERNAME", "TOTAL GAMES", "TOTAL SCORE"]
+    table = [[
+        r.get("user_id"),
+        r.get("username"),
+        r.get("total_games", 0),
+        r.get("total_score", 0)
+    ] for r in rows]
+
+    print(tabulate(table, headers=headers, tablefmt="grid"))
+
+def view_guess_weight_leaderboard():
+    query = """
+        SELECT
+            lw.weight_id,
+            up.display_name AS user,
+            p1.name AS pokemon1,
+            p2.name AS pokemon2,
+            pc.name AS user_choice,
+            pc2.name AS correct_choice,
+            lw.is_correct,
+            lw.score,
+            lw.created_at
+        FROM leaderboard_guess_weight lw
+        JOIN user_profiles up ON lw.user_id = up.user_id
+        JOIN pokemon p1 ON lw.pokemon1_id = p1.pokemon_id
+        JOIN pokemon p2 ON lw.pokemon2_id = p2.pokemon_id
+        JOIN pokemon pc ON lw.user_choice_id = pc.pokemon_id
+        JOIN pokemon pc2 ON lw.correct_pokemon_id = pc2.pokemon_id
+        ORDER BY lw.score DESC, lw.created_at DESC
+        LIMIT 10;
+    """
+
+    cursor.execute(query)
+    rows = cursor.fetchall()
+
+    if not rows:
+        print("No Guess-Weight entries recorded.")
+        return
+
+    headers = ["Entry ID", "Player", "Pokémon 1", "Pokémon 2",
+               "Your Choice", "Correct Pokémon", "Correct?", "Score", "Date"]
+
+    table = [[
+        r["weight_id"], r["user"], r["pokemon1"], r["pokemon2"],
+        r["user_choice"], r["correct_choice"], "Yes" if r["is_correct"] else "No",
+        r["score"], r["created_at"]
+    ] for r in rows]
+
+    print(tabulate(table, headers=headers, tablefmt="grid"))
+
+def view_guess_stats_leaderboard():
+    query = """
+        SELECT
+            ls.stats_id,
+            up.display_name AS user,
+            p.name AS pokemon,
+            ls.is_correct,
+            ls.score,
+            ls.created_at
+        FROM leaderboard_guess_stats ls
+        JOIN user_profiles up ON ls.user_id = up.user_id
+        JOIN pokemon p ON ls.pokemon_id = p.pokemon_id
+        ORDER BY ls.created_at DESC
+        LIMIT 10;
+    """
+
+    cursor.execute(query)
+    rows = cursor.fetchall()
+
+    if not rows:
+        print("No Guess-Stats entries recorded.")
+        return
+
+    headers = ["Entry ID", "Player", "Pokémon", "Correct?", "Score", "Date"]
+    table = [[
+        r["stats_id"], r["user"], r["pokemon"],
+        "Yes" if r["is_correct"] else "No", r.get("score", 0), r["created_at"]
+    ] for r in rows]
+
+    print(tabulate(table, headers=headers, tablefmt="grid"))
+
+# --------------------------------------------------------------------
 # MENUS
 # --------------------------------------------------------------------
 
-# asks the user what profile they want to search up
 def run_profiles_menu():
-
     while True:
-        term = input("\nEnter profile name to search (or 'back' to return): ").strip()
+        print("\n===== PROFILE SEARCH =====")
+        term = input("What profile do you want to search? (or 'back' to return): ").strip()
         if term.lower() in ("back", "b", "menu"):
             return
         if term == "":
@@ -260,16 +678,60 @@ def run_profiles_menu():
             print("\n Profiles Found:")
             print(tabulate(rows, headers=headers, tablefmt="grid"))
 
-# lets the user pick which pokemon search they want to look up
-def run_pokemon_menu():
-    # chooses mode once per entry to this sub-menu
+def run_quiz_menu():
     while True:
-        print("\n===== POKÉMON MENU =====")
-        print("Pokémon search mode:")
-        print("  1) Info (types/abilities)")
-        print("  2) Stats (base stats)")
-        print("  3) Back to main menu")
-        mode = input("Enter your choice here: ").strip()
+        print("\n===== QUIZ MENU =====")
+        print("1.] View gamemodes")
+        print("2.] Play Guess Stats")
+        print("3.] Play Guess Weight")
+        print("4.] Back")
+
+        choice = input("Option: ").strip()
+        if choice == "4" or choice.lower().startswith("b"):
+            return
+        
+        if choice == "1":
+            view_gamemodes()
+            continue
+
+        if choice == "2":
+            guess_stats_game(current_user['user_id'], cursor, conn)
+
+        if choice == "3":
+            guess_weight_game(current_user['user_id'], cursor, conn)
+
+def leaderboards_menu():
+    while True:
+        print("\n===== LEADERBOARDS MENU =====")
+        print("1.] View General Leaderboard")
+        print("2.] View Guess Weight Leaderboard")
+        print("3.] View Guess Stats Leaderboard")
+        print("4.] Back")
+        choice = input("Option: ").strip()
+        if choice == "4" or choice.lower().startswith("b"):
+            return
+        if choice == "1":
+            print("\n===== GENERAL LEADERBOARD =====")
+            view_general_leaderboard()
+        elif choice == "2":
+            print("\n===== WEIGHT LEADERBOARD =====")
+            view_guess_weight_leaderboard()
+        elif choice == "3":
+            print("\n===== STATS LEADERBOARD =====")
+            view_guess_stats_leaderboard()
+        else:
+            print("Invalid option.")
+
+
+def run_pokemon_menu():
+        # chooses mode once per entry to this sub-menu
+    while True:
+        print("\n===== POKÉMON SEARCH =====")
+        print("What do you want to search?")
+        print("1.] Pokemon Basic Info")
+        print("2.] Pokemon Stats")
+        print("3.] Back")
+        mode = input("Option: ").strip()
         if mode == "3" or mode.lower().startswith("b"):
             return
         use_stats = (mode == "2" or mode.lower().startswith("s"))
@@ -281,7 +743,8 @@ def run_pokemon_menu():
             if term == "":
                 print("Please enter a Pokémon name or 'back'.")
                 continue
-            # if stats is picked
+
+            # if stats mode is selected
             if use_stats:
                 results = search_pokemon_stats(term)
                 if not results:
@@ -291,7 +754,7 @@ def run_pokemon_menu():
                     rows = [[row.get(h) for h in headers] for row in results]
                     print("\n Pokémon Stats:")
                     print(tabulate(rows, headers=headers, tablefmt="grid"))
-            # goes through the pokemon info
+            # if it isnt selected then it is just search pokemon
             else:
                 results = search_pokemon(term)
                 if not results:
@@ -316,7 +779,6 @@ def run_pokemon_menu():
 # MAIN PROGRAM
 # --------------------------------------------------------------------
 def main():
-    #log in menu, as well as letting them create an account
     print("===== WELCOME =====")
     print("  1.] Log in")
     print("  2.] Register Account")
@@ -338,31 +800,81 @@ def main():
                 login_prompt()
                 break
             if pre == "2":
-                register_prompt()
-                break
+                registered = register_prompt()
+                # forces the user to relogin after registering, i now understand why this is common lol
+            if registered:
+                print("\nRegistration complete — please log in to continue.")
+                print("===== WELCOME =====")
+                print("  1.] Log in")
+                print("  2.] Register Account")
+                print("  3.] Quit")
+                print("    ")
+                print("░░░░░░░░▀████▀▄▄░░░░░░░░░░░░░░▄█")
+                print("░░░░░░░░░░█▀░░░░▀▀▄▄▄▄▄░░░░▄▄▀▀█")
+                print("░░▄░░░░░░░░█░░░░░░░░░░▀▀▀▀▄░░▄▀")
+                print("░▄▀░▀▄░░░░░░▀▄░░░░░░░░░░░░░░▀▄▀")
+                print("▄▀░░░░█░░░░░█▀░░░▄█▀▄░░░░░░▄█")
+                print("▀▄░░░░░▀▄░░█░░░░░▀██▀░░░░░██▄█")
+                print("░▀▄░░░░▄▀░█░░░▄██▄░░░▄░░▄░░▀▀░█")
+                print("░░█░░▄▀░░█░░░░▀██▀░░░░▀▀░▀▀░░▄▀")
+                print("░█░░░█░░█░░░░░░▄▄░░░░░░░░░░░▄▀")
+                continue
             if pre == "3":
                 print("===== EXITING PROGRAM =====")
                 return
             break
 
-
-    # main menu to select the submenus
+    # main menu
     while True:
         print("\n===== MAIN MENU =====")
         print("Welcome to Pokequiz! Please select from the menu below.")
-        print("  1.] Pokémon")
-        print("  2.] Profiles")
-        print("  3.] Exit")
+        print("1.] View your Profile")
+        print("2.] Edit your Account")
+        print("3.] Access Search")
+        print("4.] Access Quizes")
+        print("5.] Access Leaderboards")
+        print("6.] Quit")
         choice = input("\nEnter your choice here: ").strip()
 
-        if choice == "3" or choice.lower().startswith("e") or choice.lower() == "exit":
+        if choice == "6" or choice.lower() in ("quit", "q", "exit"):
             print("===== EXITING PROGRAM =====")
             break
 
-        if choice == "2" or choice.lower().startswith("p"):
-            run_profiles_menu()
-        else:
-            run_pokemon_menu() 
+        if choice == "1":
+            view_own_profile()
+            continue
+
+        if choice == "2":
+            edit_account()
+            continue
+
+        if choice == "3":
+           # users can either search pokemon or profiles
+            while True:
+                print("\n===== SEARCH MENU =====")
+                print("1.] Pokémon Search")
+                print("2.] Profile Search")
+                print("3.] Back")
+                s = input("Option: ").strip()
+                if s == "1":
+                    run_pokemon_menu()
+                    break
+                if s == "2":
+                    run_profiles_menu()
+                    break
+                if s == "3" or s.lower().startswith("b"):
+                    break
+                print("Invalid option.")
+            continue
+
+        if choice == "4":
+            run_quiz_menu()
+            continue
+
+        if choice == "5":
+            leaderboards_menu()
+            continue
+        print("Invalid option.")
 
 
 
@@ -379,5 +891,4 @@ if __name__ == "__main__":
         try:
             conn.close()
         except Exception:
-
             pass

@@ -11,6 +11,9 @@ SELECT * FROM types;
 SELECT * FROM user_profiles;
 SELECT * FROM user_roles;
 SELECT * FROM users;
+SELECT * FROM leaderboard_guess_weight;
+SELECT * FROM leaderboard_guess_stats;
+SELECT * FROM leaderboard_general;
 
 -- ----------------------------------------------------------------------------------
 -- CREATION OF TABLES
@@ -372,11 +375,202 @@ ON DUPLICATE KEY UPDATE special_group_name = special_group_name;
 
 SELECT * FROM special_groups;
 
--- Table to hold the leaderboard from the "Guess the Pokemon from it's stats"
-CREATE TABLE stat_leaderboard (
-	user_id BIGINT,
-    username VARCHAR(50)
-    -- Times played
-    -- Times lost
-    -- Times Won
+-- -------------------------------------
+-- LEADERBOARADS
+-- -------------------------------------
+
+CREATE TABLE game_modes (
+    mode_id INT AUTO_INCREMENT PRIMARY KEY,
+    mode_name VARCHAR(50) UNIQUE NOT NULL,
+    description TEXT
 );
+
+INSERT INTO game_modes (mode_name, description) VALUES
+('guess_stats', 'Identify a Pokémon from its stats'),
+('guess_weight', 'Choose which Pokémon weighs more'),
+('guess_dexnum', 'Guess the Pokémon based on its Pokédex number'),
+('guess_ability', 'Guess a Pokémon that has the shown ability'),
+('guess_egg_group', 'Guess whether two Pokémon share an egg group'),
+('guess_type', 'Guess a Pokémon that matches the given type'),
+('guess_species', 'Guess a Pokémon that matches the given species');
+
+SELECT * FROM game_modes;
+
+CREATE TABLE leaderboard_general (
+    entry_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    mode_id INT NOT NULL,
+    score INT NOT NULL,
+    correct INT DEFAULT 0,
+    incorrect INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (user_id) REFERENCES users(user_id),
+    FOREIGN KEY (mode_id) REFERENCES game_modes(mode_id)
+);
+
+CREATE TABLE leaderboard_guess_stats (
+    stats_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    pokemon_id INT NOT NULL,
+    is_correct BOOLEAN NOT NULL,
+    score INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (user_id) REFERENCES users(user_id),
+    FOREIGN KEY (pokemon_id) REFERENCES pokemon(pokemon_id)
+);
+
+
+CREATE TABLE leaderboard_guess_weight (
+    weight_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    pokemon1_id INT NOT NULL,
+    pokemon2_id INT NOT NULL,
+    user_choice_id INT NOT NULL,
+    correct_pokemon_id INT NOT NULL,
+    is_correct BOOLEAN NOT NULL,
+    score INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (user_id) REFERENCES users(user_id),
+    FOREIGN KEY (pokemon1_id) REFERENCES pokemon(pokemon_id),
+    FOREIGN KEY (pokemon2_id) REFERENCES pokemon(pokemon_id),
+    FOREIGN KEY (user_choice_id) REFERENCES pokemon(pokemon_id),
+    FOREIGN KEY (correct_pokemon_id) REFERENCES pokemon(pokemon_id)
+);
+
+
+
+
+-- TO DO LIST [ HAVE 17, 26. SO NEED 9 BULLET POINTS ]
+-- 1. Leaderboard for Guessing a pokemon from it's dex number
+CREATE TABLE leaderboard_guess_dexnum (
+    guess_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    shown_dex INT NOT NULL,             
+    user_choice_id INT NOT NULL,    
+    correct_pokemon_id INT NOT NULL,    
+    is_correct BOOLEAN NOT NULL,
+    score INT NOT NULL DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (user_id) REFERENCES users(user_id),
+    FOREIGN KEY (user_choice_id) REFERENCES pokemon(pokemon_id),
+    FOREIGN KEY (correct_pokemon_id) REFERENCES pokemon(pokemon_id)
+);
+
+-- 2. Leaderboard for Guessing a pokemon who corresponds to an ability
+CREATE TABLE leaderboard_guess_ability (
+    ability_guess_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    ability_id INT NOT NULL,
+    guessed_pokemon_id INT NOT NULL,
+    is_correct BOOLEAN NOT NULL,
+    score INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY(user_id) REFERENCES users(user_id),
+    FOREIGN KEY(ability_id) REFERENCES abilities(ability_id),
+    FOREIGN KEY(guessed_pokemon_id) REFERENCES pokemon(pokemon_id)
+);
+
+-- 3. Leaderboard for Guessing if two pokemon share the same egg groups
+CREATE TABLE leaderboard_guess_egg_group (
+    egg_guess_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    pokemon1_id INT NOT NULL,
+    pokemon2_id INT NOT NULL,
+    share_egg_group BOOLEAN NOT NULL,    
+    user_answer BOOLEAN NOT NULL,        
+    is_correct BOOLEAN NOT NULL,
+    score INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY(user_id) REFERENCES users(user_id),
+    FOREIGN KEY(pokemon1_id) REFERENCES pokemon(pokemon_id),
+    FOREIGN KEY(pokemon2_id) REFERENCES pokemon(pokemon_id)
+);
+
+-- 4. Table to store Pokemon and how many people favorite them, POKEMON ID, NUMBER OF FAVORITES
+CREATE TABLE pokemon_favorites_count (
+    pokemon_id INT PRIMARY KEY,
+    favorite_count INT NOT NULL DEFAULT 0,
+
+    FOREIGN KEY(pokemon_id) REFERENCES pokemon(pokemon_id)
+);
+
+SELECT * FROM pokemon_favorites_count;
+
+-- 5. Table to store user's favorite pokemon, USER ID, POKEMON ID
+CREATE TABLE user_favorite_pokemon (
+    user_id BIGINT NOT NULL,
+    pokemon_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, pokemon_id),
+
+    FOREIGN KEY(user_id) REFERENCES users(user_id),
+    FOREIGN KEY(pokemon_id) REFERENCES pokemon(pokemon_id)
+);
+
+-- 6. Table to allow users to create comments on pokemon: USER ID, COMMENT ID, POKEMON ID, COMMENT 
+CREATE TABLE pokemon_comments (
+    comment_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    pokemon_id INT NOT NULL,
+    comment VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY(user_id) REFERENCES users(user_id),
+    FOREIGN KEY(pokemon_id) REFERENCES pokemon(pokemon_id)
+);
+
+INSERT INTO pokemon_comments (user_id, pokemon_id, comment)
+VALUES (4, 25, 'I love pikachu!!!');
+
+SELECT * FROM pokemon_comments;
+
+-- 7. Leaderboard for Guessing a pokemon who corresponds to a random type
+		-- Have it look for a random pokemon, grab it's type, then accept any other pokemon that have that typing
+CREATE TABLE leaderboard_guess_type (
+    type_guess_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    type1_id INT NOT NULL,
+    type2_id INT NOT NULL,
+    guessed_pokemon_id INT NOT NULL,
+    is_correct BOOLEAN NOT NULL,
+    score INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY(user_id) REFERENCES users(user_id),
+    FOREIGN KEY(type_id) REFERENCES types(type_id),
+    FOREIGN KEY(guessed_pokemon_id) REFERENCES pokemon(pokemon_id)
+);
+	
+-- 8. Leaderboard for guessing a pokemon based on the species given.
+		-- Have it look for a random pokemon, grab it's species, then accept any other pokemon with the species
+	CREATE TABLE leaderboard_guess_species (
+    species_guess_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    given_species VARCHAR(50) NOT NULL,
+    guessed_pokemon_id INT NOT NULL,
+    is_correct BOOLEAN NOT NULL,
+    score INT DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY(user_id) REFERENCES users(user_id),
+    FOREIGN KEY(guessed_pokemon_id) REFERENCES pokemon(pokemon_id)
+);
+        
+-- 9.Table to store feedback given from users: FEEDBACK ID, USER ID, FEEDBACK, TIME CREATED
+CREATE TABLE user_feedback (
+    feedback_id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id BIGINT NOT NULL,
+    feedback VARCHAR(255) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+    FOREIGN KEY(user_id) REFERENCES users(user_id)
+);
+
+INSERT INTO user_feedback (user_id, feedback)
+VALUES (4, 'I love PIKACHU!!!!!');

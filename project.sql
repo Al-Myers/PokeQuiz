@@ -536,14 +536,15 @@ CREATE TABLE leaderboard_guess_type (
     type_guess_id BIGINT AUTO_INCREMENT PRIMARY KEY,
     user_id BIGINT NOT NULL,
     type1_id INT NOT NULL,
-    type2_id INT NOT NULL,
+    type2_id INT,
     guessed_pokemon_id INT NOT NULL,
     is_correct BOOLEAN NOT NULL,
     score INT DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
     FOREIGN KEY(user_id) REFERENCES users(user_id),
-    FOREIGN KEY(type_id) REFERENCES types(type_id),
+    FOREIGN KEY(type1_id) REFERENCES types(type_id),
+    FOREIGN KEY(type2_id) REFERENCES types(type_id),
     FOREIGN KEY(guessed_pokemon_id) REFERENCES pokemon(pokemon_id)
 );
 	

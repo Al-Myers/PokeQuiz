@@ -15,3 +15,11 @@
 - The ability to send feedback about the application. 
 - The ability to create and remove notes on Pokemon, in which anyone can search up to see. As well as being able to quickly see your own notes that you have made. 
 - The ability to search up Pokemon, allowing the user to study and read up on the Pokemon knowledge 
+
+**Video**(Can be found in Github too):
+
+[![Try the one in github if you cant see this](http://img.youtube.com/vi/8ksMao9SKZI/0.jpg)](http://www.youtube.com/watch?v=8ksMao9SKZI)
+
+**DIAGRAM**:
+
+![ERDiagram](https://github.com/Al-Myers/PokeQuiz/blob/main/ERD%20Table%20Final%20Project.png)
